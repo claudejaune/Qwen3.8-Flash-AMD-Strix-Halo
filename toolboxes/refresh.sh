@@ -2,8 +2,7 @@
 # refresh.sh — Build a toolbox container image from the Dockerfiles in this
 # directory and (re)create the matching toolbox container.
 #
-# Usage (run from the repo root — the Dockerfiles use toolboxes/ as the build
-# context, so the relative path matters):
+# Usage (can be run from anywhere):
 #
 #   ./toolboxes/refresh.sh <toolbox-name> [extra podman build args, e.g. --no-cache]
 #
@@ -17,6 +16,11 @@
 #   https://github.com/kyuz0/amd-strix-halo-toolboxes
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# shellcheck source=lib/common.sh
+. "$SCRIPT_DIR/lib/common.sh"
+
 if [ "$#" -lt 1 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
   echo "Usage: $0 <toolbox-name> [extra podman build args, e.g. --no-cache]"
   echo "Available toolboxes:"
@@ -29,69 +33,52 @@ NAME="$1"
 shift
 
 declare -A DOCKERFILES
-declare -A OPTIONS
+DOCKERFILES["llama-vulkan-laurentz"]="Dockerfile.vulkan-laurentz"
+DOCKERFILES["llama-vulkan-hanchen"]="Dockerfile.vulkan-hanchen"
 
-DOCKERFILES["llama-vulkan-laurentz"]="toolboxes/Dockerfile.vulkan-laurentz"
-OPTIONS["llama-vulkan-laurentz"]=""
-DOCKERFILES["llama-vulkan-hanchen"]="toolboxes/Dockerfile.vulkan-hanchen"
-OPTIONS["llama-vulkan-hanchen"]="--device /dev/dri --group-add video --security-opt seccomp=unconfined"
-
-if [[ ! -v DOCKERFILES["$NAME"] ]]; then
+if [[ ! -v DOCKERFILES[$NAME] ]]; then
   echo "Error: Unknown toolbox '$NAME'" >&2
   echo "Available: llama-vulkan-laurentz, llama-vulkan-hanchen" >&2
   exit 1
 fi
 
-DOCKERFILE="${DOCKERFILES[$NAME]}"
-CREATE_OPTIONS="${OPTIONS[$NAME]}"
+DOCKERFILE="$SCRIPT_DIR/toolboxes/${DOCKERFILES[$NAME]}"
 IMAGE="$NAME"
 
-# Check OS and pick the toolbox command (Ubuntu/Debian must use distrobox)
-TOOLBOX_CMD="toolbox"
-if [ -f /etc/os-release ]; then
-  . /etc/os-release
-  if [ "$ID" = "ubuntu" ] || [ "$ID" = "debian" ]; then
-    TOOLBOX_CMD="distrobox"
-  fi
-fi
-
-# Check dependencies
-for cmd in podman "$TOOLBOX_CMD"; do
+# Check dependencies (toolbox requires podman as its runtime)
+for cmd in podman toolbox; do
   if ! command -v "$cmd" > /dev/null 2>&1; then
-    if [ "$cmd" = "distrobox" ]; then
-      echo "Error: 'distrobox' is not installed. Debian-based distributions (like Ubuntu) must use distrobox instead of toolbox." >&2
-      echo "Please install distrobox (e.g., sudo apt install distrobox) and try again." >&2
-    else
-      echo "Error: '$cmd' is not installed." >&2
-    fi
+    echo "Error: '$cmd' is not installed." >&2
+    echo "  Install it with your distro's package manager" >&2
+    echo "  (Fedora/Arch: 'toolbox', Ubuntu/Debian: 'podman-toolbox')." >&2
     exit 1
   fi
 done
 
-# Match the known-good RDMA setup used by the vLLM Toolbx project.
-# Distrobox already manages host device integration and is left unchanged.
-if [ "$TOOLBOX_CMD" = "toolbox" ] && [ -d /dev/infiniband ]; then
-  echo "🔎 InfiniBand devices detected. Enabling RDMA for Toolbx."
-  CREATE_OPTIONS="$CREATE_OPTIONS --device /dev/infiniband --group-add rdma --ulimit memlock=-1"
-fi
-
 echo "🔨 Building $IMAGE from $DOCKERFILE…"
 echo "   args: ${*-(none, layer-cached)}"
-podman build ${1+"$@"} -t "$IMAGE" -f "$DOCKERFILE" toolboxes/
+podman build ${1+"$@"} -t "$IMAGE" -f "$DOCKERFILE" "$SCRIPT_DIR/toolboxes/"
 
 echo "🧪 Smoke test…"
 podman run --rm "$IMAGE" llama-server --version
 
-if $TOOLBOX_CMD list 2>/dev/null | grep -q "$NAME"; then
+if toolbox_has "$NAME"; then
   echo "🧹 Removing existing toolbox: $NAME"
-  $TOOLBOX_CMD rm -f "$NAME"
+  toolbox rm -f "$NAME"
 fi
 
+# toolbox create has no flag passthrough — and needs none: toolbox containers
+# natively share the host's /dev, the udev database and the user's groups,
+# which is what the --device/--group-add/--security-opt args used to provide
+# for plain podman containers.
 echo "📦 Creating toolbox: $NAME"
-if [ -n "$CREATE_OPTIONS" ]; then
-  $TOOLBOX_CMD create "$NAME" --image "$IMAGE" -- $CREATE_OPTIONS
+toolbox create "$NAME" --image "$IMAGE"
+
+# Sanity check: the GPU must be visible inside the container
+if toolbox run -c "$NAME" -- ls /dev/dri > /dev/null 2>&1; then
+  echo "✅ GPU device nodes visible in /dev/dri"
 else
-  $TOOLBOX_CMD create "$NAME" --image "$IMAGE"
+  echo "⚠️  /dev/dri is not visible inside the container — the GPU may not work." >&2
 fi
 
-echo "✅ $NAME refreshed. Enter with: $TOOLBOX_CMD enter $NAME"
+echo "✅ $NAME refreshed. Enter with: toolbox enter $NAME"

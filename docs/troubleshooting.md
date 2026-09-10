@@ -49,6 +49,16 @@ This model is large. If you run out of memory:
 - Ensure kernel params are set correctly (`amd_iommu=off`, `ttm.pages_limit=32505856`).
 - Check `dmesg | grep -i oom` and `journalctl -k | grep NV_ERR`.
 
+## GPU not visible in container
+
+`refresh.sh` warns if `/dev/dri` is not visible inside the container. The GPU
+must be accessible for Vulkan to work.
+
+- Check on the host: `ls /dev/dri` (the `amdgpu` driver creates these nodes).
+- Check inside the container: `toolbox run -c <name> -- ls /dev/dri`.
+- Toolbox containers share the host's `/dev`, udev database and user groups —
+  if the nodes are missing on the host, fix that first (driver/kernel issue).
+
 ## MTP not working
 
 - MTP requires the draft model file. Check `MTP_DRAFT_MODEL` in config.env exists. `run.sh` warns at startup if MTP is enabled but the draft model is missing.

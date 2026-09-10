@@ -10,6 +10,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/config.env"
 
+# shellcheck source=lib/common.sh
+. "$SCRIPT_DIR/lib/common.sh"
+
 info()  { echo -e "\033[1;34m[INFO]\033[0m  $*"; }
 ok()    { echo -e "\033[1;32m[ OK ]\033[0m  $*"; }
 warn()  { echo -e "\033[1;33m[WARN]\033[0m  $*"; }
@@ -21,9 +24,11 @@ MISSING=()
 note_missing() { MISSING+=("$1"); }
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+# All prompts tolerate EOF (Ctrl-D): read fails, the default is used instead
+# of the script dying with a cryptic set -e failure.
 ask() {
     local varname="$1" prompt="$2" default="$3" val
-    read -rp "$prompt [$default]: " val
+    read -rp "$prompt [$default]: " val || val=""
     val="${val:-$default}"
     printf -v "$varname" '%s' "$val"
 }
@@ -31,7 +36,7 @@ ask() {
 ask_number() {
     local varname="$1" prompt="$2" default="$3" val
     while true; do
-        read -rp "$prompt [$default]: " val
+        read -rp "$prompt [$default]: " val || val=""
         val="${val:-$default}"
         if [[ "$val" =~ ^[0-9]+$ ]]; then break; fi
         echo "  Please enter a number." >&2
@@ -43,10 +48,10 @@ ask_number() {
 ask_yes_no() {
     local prompt="$1" default="${2:-y}" reply
     if [[ "$default" == "y" ]]; then
-        read -rp "$prompt [Y/n]: " reply
+        read -rp "$prompt [Y/n]: " reply || reply=""
         [[ ! "$reply" =~ ^[Nn] ]]
     else
-        read -rp "$prompt [y/N]: " reply
+        read -rp "$prompt [y/N]: " reply || reply=""
         [[ "$reply" =~ ^[Yy] ]]
     fi
 }
@@ -62,20 +67,6 @@ PRESERVED_API_KEY=""
 if [[ -f "$CONFIG_FILE" ]]; then
     PRESERVED_API_KEY="$(grep -E '^API_KEY=' "$CONFIG_FILE" 2>/dev/null | tail -n1 | cut -d= -f2- || true)"
 fi
-
-container_exists() {
-    local name="$1"
-    if have toolbox && toolbox list -c 2>/dev/null | awk 'NR>1 {print $2}' | grep -qx "$name"; then
-        return 0
-    fi
-    if have distrobox && distrobox list 2>/dev/null | awk -F'|' '{gsub(/[ \t]/,"",$1); print $1}' | grep -qx "$name"; then
-        return 0
-    fi
-    if have podman && podman ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$name"; then
-        return 0
-    fi
-    return 1
-}
 
 # ── Detect OS ────────────────────────────────────────────────────────────────
 OS_ID="unknown"
@@ -93,9 +84,9 @@ case "$OS_ID" in
     *)             OS_LABEL="${PRETTY_NAME:-$OS_ID}" ;;
 esac
 
-# ── Container tooling (toolbox preferred, distrobox/podman fallback) ─────────
+# ── Container tooling (toolbox + podman) ─────────────────────────────────────
 install_container_tooling() {
-    echo "  This project runs llama-server inside a toolbox/distrobox container."
+    echo "  This project runs llama-server inside a toolbox container."
     echo "  Preferred tool: toolbox (package name varies by distro)."
     echo ""
     case "$OS_ID" in
@@ -109,8 +100,8 @@ install_container_tooling() {
         arch)
             echo "  Will run: sudo pacman -S --needed toolbox podman" ;;
         *)
-            echo "  No automatic install for '$OS_ID'. Install 'toolbox' (or 'distrobox')"
-            echo "  plus 'podman' with your distro's package manager, then re-run setup.sh." ;;
+            echo "  No automatic install for '$OS_ID'. Install 'toolbox' plus 'podman'"
+            echo "  with your distro's package manager, then re-run setup.sh." ;;
     esac
     if ! ask_yes_no "  Install now?" y; then
         warn "Skipped. Install toolbox + podman before running run.sh."
@@ -132,26 +123,21 @@ install_container_tooling() {
 
 echo ""
 info "=== Container tooling (detected: $OS_LABEL) ==="
-if ! have toolbox && ! have distrobox; then
-    warn "Neither 'toolbox' nor 'distrobox' found."
-    install_container_tooling || true
-elif ! have podman && ! have docker; then
-    warn "Container tool found but no container runtime (podman/docker)."
-    install_container_tooling || true
+if ! have toolbox || ! have podman; then
+    if ! have toolbox; then
+        warn "'toolbox' not found."
+    else
+        warn "'toolbox' found but 'podman' (its runtime) is missing."
+    fi
+    if install_container_tooling; then
+        hash -r 2>/dev/null || true
+    fi
 fi
 
-if have toolbox && ! have podman && ! have docker; then
-    warn "'toolbox' needs podman (or docker) as its runtime — containers will not start."
-fi
-
-if have toolbox; then
-    ok "Using: toolbox"
-elif have distrobox; then
-    ok "Using: distrobox (toolbox not found)"
-elif have podman; then
-    warn "No toolbox/distrobox — run.sh will try plain 'podman exec' as a fallback."
+if have toolbox && have podman; then
+    ok "Using: toolbox + podman"
 else
-    warn "No container tooling found. run.sh will not work until it is installed."
+    warn "Toolbox tooling incomplete. run.sh will not work until both are installed."
 fi
 
 # ── Detect hardware ──────────────────────────────────────────────────────────
@@ -182,7 +168,12 @@ else
     TTM_DISPLAY="not set / auto"
 fi
 
-info "amd_iommu: $($IOMMU_OK && echo 'off (optimal)' || echo 'on (not recommended)')"
+IOMMU_LABEL="on (not recommended)"
+if [[ "$IOMMU_OK" == "true" ]]; then
+    IOMMU_LABEL="off (optimal)"
+fi
+
+info "amd_iommu: $IOMMU_LABEL"
 info "ttm.pages_limit: $TTM_DISPLAY"
 echo ""
 
@@ -224,7 +215,7 @@ echo ""
 info "=== Step 1: Network binding ==="
 echo "  1) localhost — only accessible on this machine"
 echo "  2) 0.0.0.0  — accessible over the network (API key required)"
-read -rp "Choice [1]: " net_choice
+read -rp "Choice [1]: " net_choice || net_choice=""
 net_choice="${net_choice:-1}"
 
 if [[ "$net_choice" == "2" ]]; then
@@ -238,11 +229,15 @@ if [[ "$net_choice" == "2" ]]; then
     fi
 else
     BIND_HOST="127.0.0.1"
-    API_KEY=""
+    # Keep any existing key so a later switch back to LAN never rotates it.
+    API_KEY="$PRESERVED_API_KEY"
     ok "Localhost only. No API key needed."
 fi
 
 ask_number PORT "Port" "1235"
+if (( 10#$PORT < 1 || 10#$PORT > 65535 )); then
+    err "Port must be between 1 and 65535."
+fi
 echo ""
 
 # ── Step 2: Host memory reservation ──────────────────────────────────────────
@@ -254,19 +249,19 @@ echo "  All changes require a reboot. setup.sh will NOT modify your bootloader."
 echo "  It will print the required commands at the end."
 echo ""
 echo "  Current state:"
-echo "    amd_iommu:       $($IOMMU_OK && echo 'off (good)' || echo 'on (not recommended)')"
+echo "    amd_iommu:       $IOMMU_LABEL"
 echo "    ttm.pages_limit: $TTM_DISPLAY"
 echo ""
-echo "  1) ~121 GiB — keep GUI desktop (safe for daily use)"
+echo "  1) ~120 GiB — keep GUI desktop (safe for daily use)"
 echo "  2) ~124 GiB — pure inference machine (max VRAM, best to disable desktop)"
 echo "  3) Skip — my kernel params are already set"
-read -rp "Choice [1]: " mem_choice
+read -rp "Choice [1]: " mem_choice || mem_choice=""
 mem_choice="${mem_choice:-1}"
 
 case "$mem_choice" in
     1)
         TARGET_TTM=31457280
-        TARGET_TTM_LABEL="121 GiB (GUI desktop)"
+        TARGET_TTM_LABEL="120 GiB (GUI desktop)"
         ;;
     2)
         TARGET_TTM=32505856
@@ -278,7 +273,7 @@ case "$mem_choice" in
         ;;
     *)
         TARGET_TTM=31457280
-        TARGET_TTM_LABEL="121 GiB (GUI desktop)"
+        TARGET_TTM_LABEL="120 GiB (GUI desktop)"
         ;;
 esac
 
@@ -302,7 +297,7 @@ if [[ "$TARGET_TTM" != "0" && ( "$CURRENT_TTM" != "$TARGET_TTM" || "$IOMMU_OK" !
   #   $KERNEL_ARGS
   #
   # Then rebuild and reboot:
-  sudo kernel-install add \"\$(uname -r)\" \"/boot/vmlinuz-\$(uname -r)\" \"/boot/initrd.img-\$(uname -r)\"
+  sudo kernel-install add \"\$(uname -r)\" \"/boot/vmlinuz-\$(uname -r)\" \"/boot/initramfs-\$(uname -r).img\"
   sudo reboot"
     elif [[ -f /etc/default/grub ]]; then
         BOOT_INSTRUCTIONS="  # Add to GRUB_CMDLINE_LINUX in /etc/default/grub:
@@ -373,14 +368,13 @@ echo "     Toolbox: vulkan-hanchen (danielhanchen fork, qwen4exp/mtp)"
 echo "     Pro: MTP speculative decoding available, vision support"
 echo "     Con: needs local toolbox build (~20 min first time)"
 echo ""
-read -rp "Choice [2]: " model_choice
+read -rp "Choice [2]: " model_choice || model_choice=""
 model_choice="${model_choice:-2}"
 
 case "$model_choice" in
     1)
         MODEL_NAME="rocmfp4"
         TOOLBOX_NAME="llama-vulkan-laurentz"
-        TOOLBOX_BUILD_SCRIPT="toolboxes/refresh.sh"
         MODEL_DIR="$MODELS_DIR/agentionai/Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-GGUF"
         MODEL_PATH="$MODEL_DIR/Qwen3.8-Flash-Next-ROCmFP4-FAST-v2-ple16.gguf"
         MMPROJ_PATH="$MODEL_DIR/mmproj/mmproj-Qwen3.8-Flash-Next-f16.gguf"
@@ -396,7 +390,6 @@ case "$model_choice" in
     2)
         MODEL_NAME="unsloth_iq4xs"
         TOOLBOX_NAME="llama-vulkan-hanchen"
-        TOOLBOX_BUILD_SCRIPT="toolboxes/refresh.sh"
         MODEL_DIR="$MODELS_DIR/unsloth/Qwen3.8-Flash-Next-GGUF"
         MODEL_PATH="$MODEL_DIR/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf"
         MMPROJ_PATH="$MODEL_DIR/mmproj-Qwen.Qwen3.8-Flash-Next.f16.gguf"
@@ -416,12 +409,12 @@ esac
 
 # ── Step 3b: Vision (multimodal) ─────────────────────────────────────────────
 VISION_ENABLED=false
-if $VISION_AVAILABLE; then
+if [[ "$VISION_AVAILABLE" == "true" ]]; then
     info "=== Step 3b: Vision (multimodal) ==="
     echo "  This model supports images and video via a multimodal projector (~863 MB)."
     echo "  1) Enable vision — downloads mmproj if missing"
     echo "  2) Disable vision — text only"
-    read -rp "Choice [1]: " vision_choice
+    read -rp "Choice [1]: " vision_choice || vision_choice=""
     vision_choice="${vision_choice:-1}"
     if [[ "$vision_choice" == "1" ]]; then
         VISION_ENABLED=true
@@ -446,7 +439,7 @@ echo ""
 echo "  2) Resident in RAM — loads the full table into memory"
 echo "     Faster decode/prefill but needs ~30 GB more RAM"
 echo ""
-read -rp "Choice [1]: " ple_choice
+read -rp "Choice [1]: " ple_choice || ple_choice=""
 ple_choice="${ple_choice:-1}"
 
 if [[ "$ple_choice" == "2" ]]; then
@@ -465,7 +458,7 @@ info "=== Step 5: Context size ==="
 echo "  1) 128k — short sessions, lowest VRAM usage"
 echo "  2) 180k — balanced (recommended)"
 echo "  3) 262k — very long sessions, highest VRAM usage"
-read -rp "Choice [2]: " ctx_choice
+read -rp "Choice [2]: " ctx_choice || ctx_choice=""
 ctx_choice="${ctx_choice:-2}"
 
 case "$ctx_choice" in
@@ -487,7 +480,7 @@ echo "  Requires the MTP draft model file (downloaded in the fetch phase if miss
 echo ""
 echo "  1) No MTP — standard autoregressive decoding"
 echo "  2) MTP 2 — draft 2 extra tokens per step"
-read -rp "Choice [1]: " mtp_choice
+read -rp "Choice [1]: " mtp_choice || mtp_choice=""
 mtp_choice="${mtp_choice:-1}"
 
 if [[ "$mtp_choice" == "2" ]]; then
@@ -567,7 +560,11 @@ hf_download() {
 
 download_missing() {
     # Usage: download_missing <repo> <relative-file> <local-dir>
-    local repo="$1" file="$2" dir="$3" fpath="$dir/$file"
+    # NOTE: two separate local statements — in one statement all right-hand
+    # expansions happen before any assignment, so fpath="$dir/$file" would
+    # see $dir unbound.
+    local repo="$1" file="$2" dir="$3"
+    local fpath="$dir/$file"
     if [[ -f "$fpath" ]]; then
         ok "Already downloaded: $file ($(du -sh "$fpath" | cut -f1))"
         return 0
@@ -601,14 +598,13 @@ done
 echo ""
 
 info "=== Fetch phase: toolbox ==="
-if container_exists "$TOOLBOX_NAME"; then
+if toolbox_has "$TOOLBOX_NAME"; then
     ok "Toolbox '$TOOLBOX_NAME' already exists."
 else
     warn "Toolbox '$TOOLBOX_NAME' not found."
     info "Building it compiles a llama.cpp fork inside a container image. This may take ~20 minutes."
     if ask_yes_no "Build toolbox now?" n; then
-        # refresh.sh expects the repo root as cwd (build context is toolboxes/)
-        if (cd "$SCRIPT_DIR" && bash "$TOOLBOX_BUILD_SCRIPT" "$TOOLBOX_NAME"); then
+        if bash "$SCRIPT_DIR/toolboxes/refresh.sh" "$TOOLBOX_NAME"; then
             ok "Toolbox built."
         else
             warn "Toolbox build failed."
@@ -649,7 +645,7 @@ if ((${#MISSING[@]} > 0)); then
     echo ""
 fi
 
-if $NEEDS_REBOOT; then
+if [[ "$NEEDS_REBOOT" == "true" ]]; then
     echo ""
     echo "============================================"
     warn "KERNEL PARAMS NOT YET APPLIED — REBOOT REQUIRED"

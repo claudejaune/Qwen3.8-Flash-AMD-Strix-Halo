@@ -15,15 +15,25 @@ fi
 . "$SCRIPT_DIR/lib/common.sh"
 load_config "$CONFIG_FILE"
 
-have() { command -v "$1" &>/dev/null; }
-
 # Validate required vars
-for var in TOOLBOX_NAME MODEL_PATH CTX_SIZE BIND_HOST PORT GPU_LAYERS FLASH_ATTN LOAD_MODE PARALLEL_SLOTS; do
+for var in TOOLBOX_NAME MODEL_PATH BIND_HOST PORT CTX_SIZE PARALLEL_SLOTS GPU_LAYERS FLASH_ATTN LOAD_MODE; do
     if [[ -z "${!var:-}" ]]; then
         echo "Error: $var not set in config.env. Re-run ./setup.sh." >&2
         exit 1
     fi
 done
+
+# Numeric vars — a hand-edited config must not pass garbage to llama-server
+for var in PORT CTX_SIZE PARALLEL_SLOTS GPU_LAYERS; do
+    if [[ ! "${!var}" =~ ^[0-9]+$ ]]; then
+        echo "Error: $var must be a number, got '${!var}' in config.env." >&2
+        exit 1
+    fi
+done
+if [[ ! "${MTP_DRAFT_N:-0}" =~ ^[0-9]+$ ]]; then
+    echo "Error: MTP_DRAFT_N must be a number, got '${MTP_DRAFT_N:-<unset>}' in config.env." >&2
+    exit 1
+fi
 
 # Check model exists
 if [[ ! -f "$MODEL_PATH" ]]; then
@@ -55,31 +65,10 @@ if [[ "$MODEL_PATH" =~ -([0-9]{5})-of-([0-9]{5})\.gguf$ ]]; then
     fi
 fi
 
-# Locate the container (toolbox preferred, distrobox/podman fallbacks)
-toolbox_has() {
-    toolbox list -c 2>/dev/null | awk 'NR>1 {print $2}' | grep -qx "$1"
-}
-distrobox_has() {
-    distrobox list 2>/dev/null | awk -F'|' '{gsub(/[ \t]/,"",$1); print $1}' | grep -qx "$1"
-}
-podman_has() {
-    podman ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$1"
-}
-
-if ! toolbox_has "$TOOLBOX_NAME" && ! distrobox_has "$TOOLBOX_NAME" && ! podman_has "$TOOLBOX_NAME"; then
-    echo "Error: Container '$TOOLBOX_NAME' not found (checked toolbox, distrobox and podman)." >&2
-    echo "Re-run ./setup.sh to create it." >&2
-    exit 1
-fi
-
-if have toolbox && toolbox_has "$TOOLBOX_NAME"; then
-    TB_CMD="toolbox"
-elif have distrobox && distrobox_has "$TOOLBOX_NAME"; then
-    TB_CMD="distrobox"
-elif have podman; then
-    TB_CMD="podman"
-else
-    echo "Error: Neither toolbox, distrobox nor podman found." >&2
+# Locate the container (toolbox only — it must be a toolbox container)
+if ! toolbox_has "$TOOLBOX_NAME"; then
+    echo "Error: Toolbox '$TOOLBOX_NAME' not found." >&2
+    echo "Re-run ./setup.sh or build it manually: ./toolboxes/refresh.sh $TOOLBOX_NAME" >&2
     exit 1
 fi
 
@@ -129,8 +118,15 @@ if [[ -n "${API_KEY:-}" && "$BIND_HOST" != "127.0.0.1" ]]; then
     CMD+=(--api-key "$API_KEY")
 fi
 
-# Get local IP for display
-LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "unknown")
+# Host shown in the connection info: the LAN IP when bound to the network,
+# the loopback address when bound to localhost.
+DISPLAY_HOST="$BIND_HOST"
+if [[ "$BIND_HOST" != "127.0.0.1" ]]; then
+    DISPLAY_HOST="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    if [[ -z "$DISPLAY_HOST" ]]; then
+        DISPLAY_HOST="$BIND_HOST"
+    fi
+fi
 
 # Print connection info
 echo ""
@@ -138,37 +134,25 @@ echo "============================================"
 echo " Qwen3.8-Flash-Next Server"
 echo "============================================"
 echo ""
-echo "  Container:  $TOOLBOX_NAME (via $TB_CMD)"
-echo "  Model:      $(basename "$MODEL_PATH")"
-echo "  Context:    $CTX_SIZE tokens"
-echo "  PLE mode:   ${PLE_MODE:-resident}"
-echo "  MTP:        ${MTP_ENABLED:-false} (K=${MTP_DRAFT_N:-0})"
+echo "  Toolbox:   $TOOLBOX_NAME"
+echo "  Model:     $(basename "$MODEL_PATH")"
+echo "  Context:   $CTX_SIZE tokens"
+echo "  PLE mode:  ${PLE_MODE:-resident}"
+echo "  MTP:       ${MTP_ENABLED:-false} (K=${MTP_DRAFT_N:-0})"
 echo ""
-echo "  Endpoint:   http://${LOCAL_IP}:${PORT}/v1/chat/completions"
-echo "  Health:     http://${LOCAL_IP}:${PORT}/health"
+echo "  Endpoint:  http://$DISPLAY_HOST:$PORT/v1/chat/completions"
+echo "  Health:    http://$DISPLAY_HOST:$PORT/health"
 if [[ -n "${API_KEY:-}" && "$BIND_HOST" != "127.0.0.1" ]]; then
-echo "  API key:    $API_KEY"
+echo "  API key:   $API_KEY"
 echo ""
 echo "  NOTE: API key required. Anyone on the network can reach this"
 echo "  server. Set this key in your agent/client configuration."
 fi
 echo ""
-echo "  Stop:       ./stop.sh (from another terminal)"
+echo "  Stop:      ./stop.sh (from another terminal)"
 echo ""
 echo "============================================"
 echo ""
 
 # Run in foreground
-case "$TB_CMD" in
-    toolbox)
-        exec toolbox run -c "$TOOLBOX_NAME" -- "${CMD[@]}"
-        ;;
-    distrobox)
-        exec distrobox enter --name "$TOOLBOX_NAME" -- "${CMD[@]}"
-        ;;
-    podman)
-        # Toolbox/distrobox containers may be stopped; start before exec.
-        podman start "$TOOLBOX_NAME" >/dev/null 2>&1 || true
-        exec podman exec "$TOOLBOX_NAME" "${CMD[@]}"
-        ;;
-esac
+exec toolbox run -c "$TOOLBOX_NAME" -- "${CMD[@]}"

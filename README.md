@@ -9,9 +9,9 @@ No prior experience with running local AI models needed. The scripts guide you t
 ### Prerequisites
 
 - AMD Strix Halo with 128 GB RAM and ~90 GB free disk for the model
-- `toolbox` + `podman` (or `distrobox` on Ubuntu):
+- `toolbox` + `podman`:
   - Fedora 42+: `sudo dnf install -y toolbox podman` (preinstalled on Workstation)
-  - Ubuntu 24.04/26.04: `sudo add-apt-repository universe && sudo apt install -y podman-toolbox podman` (the toolbox binary is packaged as `podman-toolbox`; `distrobox` also works)
+  - Ubuntu 24.04/26.04: `sudo add-apt-repository universe && sudo apt install -y podman-toolbox podman` (the toolbox binary is packaged as `podman-toolbox`)
   - Arch: `sudo pacman -S --needed toolbox podman`
 
 ### Set up and run
@@ -49,9 +49,10 @@ Both support MTP speculative decoding and (optionally) vision (images/video).
 2. Kernel boot params: prints exact commands if yours need changing (reboot required)
 3. Model choice: auto downloads if missing
 4. Vision on/off
-5. PLE table in VRAM or on SSD (slightly slower but saves 20+ GB VRAM)
+5. PLE table in VRAM or on SSD (slightly slower but saves ~30 GB VRAM)
 6. Context size (128k / 180k / 262k)
 7. MTP on/off
+8. Parallel slots (concurrent requests)
 
 ## Documentation
 

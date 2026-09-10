@@ -30,34 +30,34 @@ RUN git clean -xdf \
   -DLLAMA_BUILD_TESTS=OFF \
   -DLLAMA_BUILD_EXAMPLES=ON \
   -DLLAMA_BUILD_SERVER=ON \
-  && cmake --build build --config Release -j28 \
+  && cmake --build build --config Release -j"$(nproc)" \
   && cmake --install build --config Release
 
-# libs
-RUN find /opt/llama.cpp/build -type f -name 'lib*.so*' -exec cp {} /usr/lib64/ \; \
-  && ldconfig
+# libs — staged in a dedicated dir so the runtime stage can copy exactly the
+# llama.cpp libs, whatever they are named (libggml*, libllama*, libmtmd, ...),
+# instead of globbing in /usr/lib64 where the build toolchain also lives.
+RUN mkdir -p /opt/llama-libs \
+  && find /opt/llama.cpp/build -type f -name 'lib*.so*' -exec cp {} /opt/llama-libs/ \;
 
 
 # runtime stage
 FROM registry.fedoraproject.org/fedora-minimal:43
 
-# runtime deps
+# runtime deps — covers the full DT_NEEDED closure of the llama binaries
 RUN microdnf -y --nodocs --setopt=install_weak_deps=0 install \
-  bash ca-certificates libatomic libstdc++ libgcc libibverbs \
-  vulkan-loader vulkan-loader-devel vulkaninfo mesa-vulkan-drivers radeontop procps-ng \
+  bash ca-certificates libatomic libstdc++ libgcc libgomp libcurl \
+  openssl-libs libibverbs libnl3 \
+  vulkan-loader vulkaninfo mesa-vulkan-drivers radeontop procps-ng \
   && microdnf clean all && rm -rf /var/cache/dnf/*
 
-# copy
-COPY --from=builder /usr/ /usr/
-COPY --from=builder /usr/local/ /usr/local/
-COPY --from=builder /opt/llama.cpp/build/bin/ggml-rpc-* /usr/local/bin/
+# copy — targeted only: copying all of /usr from the builder would ship the
+# entire build toolchain (git, gcc, clang, cmake, ...) in the runtime image.
+COPY --from=builder /usr/bin/llama-* /usr/bin/
+COPY --from=builder /usr/bin/ggml-* /usr/bin/
+COPY --from=builder /opt/llama-libs/ /usr/lib64/
 
 # ld
-RUN echo "/usr/local/lib"  > /etc/ld.so.conf.d/local.conf \
-  && echo "/usr/local/lib64" >> /etc/ld.so.conf.d/local.conf \
-  && ldconfig \
-  && cp -n /usr/local/lib/libllama*.so* /usr/lib64/ 2>/dev/null || true \
-  && ldconfig
+RUN ldconfig
 
 # shell
 CMD ["/bin/bash"]

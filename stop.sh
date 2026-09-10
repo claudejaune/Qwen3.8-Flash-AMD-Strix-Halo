@@ -22,63 +22,58 @@ have() { command -v "$1" &>/dev/null; }
 CONTAINER="${TOOLBOX_NAME:-}"
 TIMEOUT=10
 
+# True if the container is currently running. (A stopped container would be
+# *started* by `toolbox run`, which we don't want just to check for a server.)
+container_running() {
+    local running
+    running="$(podman ps --format '{{.Names}}' 2>/dev/null | tr '\n' ' ')" || return 1
+    [[ " $running " == *" $1 "* ]]
+}
+
 # ── Container-scoped stop ─────────────────────────────────────────────────────
-# The container must actually be running; don't start it just to check.
-CONTAINER_RUNNING=true
-if have podman && ! podman ps --format '{{.Names}}' 2>/dev/null | grep -qx "$CONTAINER"; then
-    CONTAINER_RUNNING=false
-fi
+if [[ -n "$CONTAINER" ]] && have toolbox && toolbox_has "$CONTAINER" && \
+   have podman && container_running "$CONTAINER"; then
+    TBX=(toolbox run -c "$CONTAINER" --)
 
-if [[ -n "$CONTAINER" && "$CONTAINER_RUNNING" == "true" ]]; then
-    if have toolbox; then
-        TBX=(toolbox run -c "$CONTAINER" --)
-    elif have podman; then
-        TBX=(podman exec "$CONTAINER")
-    else
-        TBX=()
-    fi
+    C_PIDS=$("${TBX[@]}" pgrep -f llama-server 2>/dev/null || true)
 
-    if ((${#TBX[@]} > 0)); then
-        C_PIDS=$("${TBX[@]}" pgrep -f llama-server 2>/dev/null || true)
+    # Keep only processes whose command line *starts with* llama-server.
+    # This excludes transient wrappers (the host-side `toolbox run` process
+    # itself, shells, etc.) without fragile substring matches.
+    REAL_PIDS=""
+    for pid in $C_PIDS; do
+        C_CMD=$("${TBX[@]}" cat "/proc/$pid/cmdline" 2>/dev/null | tr '\0' ' ' || true)
+        case "$C_CMD" in
+            llama-server*) REAL_PIDS+="$pid " ;;
+        esac
+    done
 
-        # Filter out transient wrappers (pgrep itself, toolbox plumbing) by
-        # checking each candidate's cmdline inside the container.
-        REAL_PIDS=""
-        for pid in $C_PIDS; do
-            C_CMD=$("${TBX[@]}" cat "/proc/$pid/cmdline" 2>/dev/null | tr '\0' ' ' || true)
-            case "$C_CMD" in
-                *pgrep*|*toolbox*) continue ;;
-                *) REAL_PIDS+="$pid " ;;
-            esac
+    if [[ -n "$REAL_PIDS" ]]; then
+        echo "Found llama-server in container '$CONTAINER': PIDs $REAL_PIDS"
+        echo "Sending SIGTERM ..."
+        # shellcheck disable=SC2086
+        "${TBX[@]}" kill $REAL_PIDS 2>/dev/null || true
+
+        for ((i = 0; i < TIMEOUT; i++)); do
+            STILL_ALIVE=false
+            for pid in $REAL_PIDS; do
+                if "${TBX[@]}" kill -0 "$pid" 2>/dev/null; then
+                    STILL_ALIVE=true
+                    break
+                fi
+            done
+            if [[ "$STILL_ALIVE" != "true" ]]; then
+                echo "Stopped."
+                exit 0
+            fi
+            sleep 1
         done
 
-        if [[ -n "$REAL_PIDS" ]]; then
-            echo "Found llama-server in container '$CONTAINER': PIDs $REAL_PIDS"
-            echo "Sending SIGTERM ..."
-            # shellcheck disable=SC2086
-            "${TBX[@]}" kill $REAL_PIDS 2>/dev/null || true
-
-            for ((i = 0; i < TIMEOUT; i++)); do
-                STILL_ALIVE=false
-                for pid in $REAL_PIDS; do
-                    if "${TBX[@]}" kill -0 "$pid" 2>/dev/null; then
-                        STILL_ALIVE=true
-                        break
-                    fi
-                done
-                if ! $STILL_ALIVE; then
-                    echo "Stopped."
-                    exit 0
-                fi
-                sleep 1
-            done
-
-            echo "Force killing ..."
-            # shellcheck disable=SC2086
-            "${TBX[@]}" kill -9 $REAL_PIDS 2>/dev/null || true
-            echo "Stopped."
-            exit 0
-        fi
+        echo "Force killing ..."
+        # shellcheck disable=SC2086
+        "${TBX[@]}" kill -9 $REAL_PIDS 2>/dev/null || true
+        echo "Stopped."
+        exit 0
     fi
 fi
 
@@ -114,7 +109,7 @@ for ((i = 0; i < TIMEOUT; i++)); do
             break
         fi
     done
-    if ! $STILL_ALIVE; then
+    if [[ "$STILL_ALIVE" != "true" ]]; then
         echo "Stopped."
         exit 0
     fi

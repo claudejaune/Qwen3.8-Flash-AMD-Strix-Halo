@@ -5,7 +5,7 @@ version, see the [main README](../README.md).
 
 ## What setup.sh does
 
-1. **Container tooling check** — detects your distro (Fedora/Ubuntu/Arch) and offers to install `toolbox` + `podman` (or `distrobox`) if missing
+1. **Container tooling check** — detects your distro (Fedora/Ubuntu/Arch) and offers to install `toolbox` + `podman` if missing
 2. **Network binding** — localhost or 0.0.0.0 (with API key, preserved across setup runs)
 3. **Kernel config check** — prints the `amd_iommu=off` / `ttm.pages_limit` commands for your bootloader; never modifies the bootloader itself
 4. **Model selection** — ROCmFP4 (agentionai) or IQ4_XS (unsloth)
@@ -20,8 +20,11 @@ phase** downloads any missing model files and offers to build the toolbox
 container (~20 min first time). Downloads/builds happen *after* the config is
 saved, so a failed download never throws away your answers.
 
-`stop.sh` only kills llama-server processes inside the container named in
-`config.env` — it never touches unrelated llama-server processes on the host.
+`stop.sh` kills llama-server inside the toolbox container named in
+`config.env` — it never touches unrelated llama-server processes on the host
+as long as the container path is available. If the container is missing or
+not running, it falls back to a host-wide search, but asks for confirmation
+before killing anything.
 
 ## Host configuration (kernel params)
 
@@ -38,7 +41,7 @@ Both **require a reboot** — they're read once at boot. `setup.sh` checks your 
 
 | Target | `ttm.pages_limit` | Use case |
 |---|---|---|
-| ~121 GiB | `31457280` | GUI desktop, safe for daily use |
+| ~120 GiB | `31457280` | GUI desktop, safe for daily use |
 | ~124 GiB | `32505856` | Pure inference, max VRAM |
 
 ### Fedora
@@ -73,7 +76,7 @@ sudo reboot
 
 sudo kernel-install add "$(uname -r)" \
   "/boot/vmlinuz-$(uname -r)" \
-  "/boot/initrd.img-$(uname -r)"
+  "/boot/initramfs-$(uname -r).img"
 sudo reboot
 ```
 
@@ -121,7 +124,7 @@ sudo reboot
 
 - `amdgpu.gttsize` is **deprecated** on kernels 6.1+ — use `ttm.pages_limit` instead.
 - `amd_iommu=off` prevents the NPU from working and removes DMA attack protection. Leave IOMMU enabled if you need the NPU.
-- On the Framework Desktop, 121 GiB (`ttm.pages_limit=31457280`) is enough for this model with SSD streaming. 124 GiB only matters if you want to load the PLE table into RAM.
+- On the Framework Desktop, 120 GiB (`ttm.pages_limit=31457280`) is enough for this model with SSD streaming. 124 GiB only matters if you want to load the PLE table into RAM.
 
 ## Config file reference
 
