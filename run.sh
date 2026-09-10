@@ -1,25 +1,26 @@
 #!/usr/bin/env bash
-# run.sh — Start Qwen3.8-Flash-Next llama-server using config.sh.
+# run.sh — Start Qwen3.8-Flash-Next llama-server using config.env.
 # Runs in the foreground. Use stop.sh from another terminal to stop it.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/config.sh"
+CONFIG_FILE="$SCRIPT_DIR/config.env"
 
 if [[ ! -f "$CONFIG_FILE" ]]; then
-    echo "Error: config.sh not found. Run ./setup.sh first." >&2
+    echo "Error: config.env not found. Run ./setup.sh first." >&2
     exit 1
 fi
 
-# shellcheck source=config.sh
-source "$CONFIG_FILE"
+# shellcheck source=common.sh
+. "$SCRIPT_DIR/common.sh"
+load_config "$CONFIG_FILE"
 
 have() { command -v "$1" &>/dev/null; }
 
 # Validate required vars
 for var in TOOLBOX_NAME MODEL_PATH CTX_SIZE BIND_HOST PORT GPU_LAYERS FLASH_ATTN LOAD_MODE PARALLEL_SLOTS; do
     if [[ -z "${!var:-}" ]]; then
-        echo "Error: $var not set in config.sh. Re-run ./setup.sh." >&2
+        echo "Error: $var not set in config.env. Re-run ./setup.sh." >&2
         exit 1
     fi
 done

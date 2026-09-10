@@ -15,13 +15,13 @@ version, see the [main README](../README.md).
 8. **MTP** — optional 2-token speculative decoding
 9. **Parallel slots** — concurrent request slots
 
-After all questions are answered, `config.sh` is written and a final **fetch
+After all questions are answered, `config.env` is written and a final **fetch
 phase** downloads any missing model files and offers to build the toolbox
 container (~20 min first time). Downloads/builds happen *after* the config is
 saved, so a failed download never throws away your answers.
 
 `stop.sh` only kills llama-server processes inside the container named in
-`config.sh` — it never touches unrelated llama-server processes on the host.
+`config.env` — it never touches unrelated llama-server processes on the host.
 
 ## Host configuration (kernel params)
 
@@ -125,27 +125,30 @@ sudo reboot
 
 ## Config file reference
 
-`config.sh` is a shell-sourceable file that `run.sh` reads. `setup.sh` generates it; you can also edit it by hand. Example:
+`config.env` is a plain `KEY=value` data file that `run.sh` reads. `setup.sh`
+generates it; you can also edit it by hand. Values are **data, not code** —
+they are never executed or expanded, so a config file can't inject commands.
+Full-line `#` comments and blank lines are allowed. Example:
 
 ```bash
-TOOLBOX_NAME="llama-vulkan-hanchen"
-MODEL_PATH="$HOME/models/unsloth/Qwen3.8-Flash-Next-GGUF/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf"
-MMPROJ_PATH="$HOME/models/unsloth/Qwen3.8-Flash-Next-GGUF/mmproj-Qwen.Qwen3.8-Flash-Next.f16.gguf"
-BIND_HOST="0.0.0.0"
-PORT="1235"
-API_KEY="sk-lm-..."
-CTX_SIZE="180000"
-PARALLEL_SLOTS="1"
-FLASH_ATTN="on"
-GPU_LAYERS="999"
-LOAD_MODE="auto"
-CACHE_TYPE_K="q8_0"
-CACHE_TYPE_V="q8_0"
-PLE_MODE="ssd"
-PLE_FLAGS="--lazy-mode on"
-MTP_ENABLED="true"
-MTP_DRAFT_N="2"
-MTP_DRAFT_MODEL="$HOME/models/unsloth/Qwen3.8-Flash-Next-GGUF/mtp-Qwen3.8-Flash-Next-Q4_K_M.gguf"
+TOOLBOX_NAME=llama-vulkan-hanchen
+MODEL_PATH=/home/you/models/unsloth/Qwen3.8-Flash-Next-GGUF/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf
+MMPROJ_PATH=/home/you/models/unsloth/Qwen3.8-Flash-Next-GGUF/mmproj-Qwen.Qwen3.8-Flash-Next.f16.gguf
+BIND_HOST=0.0.0.0
+PORT=1235
+API_KEY=sk-lm-...
+CTX_SIZE=180000
+PARALLEL_SLOTS=1
+FLASH_ATTN=on
+GPU_LAYERS=999
+LOAD_MODE=auto
+CACHE_TYPE_K=q8_0
+CACHE_TYPE_V=q8_0
+PLE_MODE=ssd
+PLE_FLAGS=--lazy-mode on
+MTP_ENABLED=true
+MTP_DRAFT_N=2
+MTP_DRAFT_MODEL=/home/you/models/unsloth/Qwen3.8-Flash-Next-GGUF/mtp-Qwen3.8-Flash-Next-Q4_K_M.gguf
 ```
 
 | Variable | Meaning |
@@ -171,7 +174,7 @@ The model's PLE n-gram table (~27-51 GB) is only looked up, never multiplied. It
 
 ## llama-server flags
 
-`run.sh` builds the llama-server command from config.sh. Here's what each flag does:
+`run.sh` builds the llama-server command from config.env. Here's what each flag does:
 
 ### Always set
 

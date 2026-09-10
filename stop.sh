@@ -9,11 +9,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/config.sh"
+CONFIG_FILE="$SCRIPT_DIR/config.env"
 
 if [[ -f "$CONFIG_FILE" ]]; then
-    # shellcheck source=config.sh
-    source "$CONFIG_FILE"
+    # shellcheck source=common.sh
+    . "$SCRIPT_DIR/common.sh"
+    load_config "$CONFIG_FILE"
 fi
 
 have() { command -v "$1" &>/dev/null; }
