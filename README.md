@@ -2,7 +2,7 @@
 
 Run Qwen3.8-Flash-Next (180B params, 6B active) on a single Strix Halo machine with 128 GB unified memory.
 
-No prior experience with running local AI models needed. The scripts 
+No prior experience with running local AI models needed. The scripts guide you through every step.
 
 ## Quick start
 

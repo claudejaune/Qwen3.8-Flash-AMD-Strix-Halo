@@ -11,8 +11,8 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
     exit 1
 fi
 
-# shellcheck source=common.sh
-. "$SCRIPT_DIR/common.sh"
+# shellcheck source=lib/common.sh
+. "$SCRIPT_DIR/lib/common.sh"
 load_config "$CONFIG_FILE"
 
 have() { command -v "$1" &>/dev/null; }

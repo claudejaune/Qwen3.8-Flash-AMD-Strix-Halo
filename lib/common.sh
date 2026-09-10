@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# common.sh — shared helpers for setup.sh, run.sh and stop.sh.
+# lib/common.sh — shared helpers sourced by setup.sh, run.sh and stop.sh.
 
 # Load KEY=value pairs from a config file into the environment.
 #

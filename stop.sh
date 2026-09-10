@@ -12,8 +12,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/config.env"
 
 if [[ -f "$CONFIG_FILE" ]]; then
-    # shellcheck source=common.sh
-    . "$SCRIPT_DIR/common.sh"
+    # shellcheck source=lib/common.sh
+    . "$SCRIPT_DIR/lib/common.sh"
     load_config "$CONFIG_FILE"
 fi
 
