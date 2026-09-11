@@ -5,8 +5,8 @@ from community llama.cpp forks:
 
 | Container | llama.cpp source | What it enables |
 |---|---|---|
-| `llama-vulkan-laurentz` | [LaurentZuijdwijk/llama.cpp](https://github.com/LaurentZuijdwijk/llama.cpp) (`vulkan/qwen4exp-rocmfpx`) | Vulkan build supporting ROCmFP4 quantized GGUFs + PLE n-gram streaming |
-| `llama-vulkan-hanchen` | [danielhanchen/llama.cpp](https://github.com/danielhanchen/llama.cpp) (`qwen4exp/mtp`) | Vulkan build with MTP speculative decoding |
+| `llama-vulkan-laurentz` | [LaurentZuijdwijk/llama.cpp](https://github.com/LaurentZuijdwijk/llama.cpp) (`vulkan/qwen4exp-rocmfpx`) | ROCmFP4 GGUFs + PLE n-gram streaming. MTP is supported. |
+| `llama-vulkan-hanchen` | [danielhanchen/llama.cpp](https://github.com/danielhanchen/llama.cpp) (`qwen4exp/mtp`) | Unsloth IQ4_XS GGUFs + PLE streaming. MTP is supported. |
 
 Build one (~20 min first build, needs internet — the build clones the llama.cpp
 fork):

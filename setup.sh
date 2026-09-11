@@ -464,24 +464,47 @@ download_missing() {
 }
 
 info "=== Fetch phase: model files ==="
+main_missing=false
+extra_missing=false
+if [[ "$VISION_ENABLED" == "true" && -n "$MMPROJ_PATH" ]] && ! file_usable "$MMPROJ_PATH"; then
+    extra_missing=true
+fi
+# shellcheck disable=SC2086
+for f in $DOWNLOAD_FILES; do
+    if file_usable "$MODEL_DIR/$f"; then
+        continue
+    fi
+    if [[ -n "${CATALOG_MTP_FILE:-}" && "$f" == "$CATALOG_MTP_FILE" ]]; then
+        extra_missing=true
+    else
+        main_missing=true
+    fi
+done
+
 avail="$(disk_avail_gib "$MODELS_DIR")" || avail=""
 size_gib="${CATALOG_SIZE_GIB:-95}"
 disk_min_gib=100
 disk_rec_gib=120
-if [[ -z "$avail" ]]; then
+if [[ "$main_missing" != "true" && "$extra_missing" != "true" ]]; then
+    :
+elif [[ -z "$avail" ]]; then
     warn "Could not check free disk space for $MODELS_DIR."
-elif (( avail < disk_min_gib )); then
-    err "Only ${avail} GiB free on the disk that holds $MODELS_DIR. Need at least ${disk_min_gib} GiB (this model uses ~${size_gib} GB on disk; ${disk_rec_gib} GiB free is recommended so the disk isn't packed full)."
-elif (( avail < disk_rec_gib )); then
-    warn "Only ${avail} GiB free on the disk that holds $MODELS_DIR."
-    echo "  This model uses ~${size_gib} GB on disk. ${disk_rec_gib} GiB free is recommended so about 30 GB stays unused."
-    if ! ask_yes_no "  Continue anyway?" n; then
-        err "Stopped before downloading. config.env was saved — free some space, then re-run ./setup.sh or ./refresh.sh."
+elif [[ "$main_missing" == "true" ]]; then
+    if (( avail < disk_min_gib )); then
+        err "Only ${avail} GiB free on the disk that holds $MODELS_DIR. Need at least ${disk_min_gib} GiB (this model uses ~${size_gib} GB on disk; ${disk_rec_gib} GiB free is recommended so the disk isn't packed full)."
+    elif (( avail < disk_rec_gib )); then
+        warn "Only ${avail} GiB free on the disk that holds $MODELS_DIR."
+        echo "  This model uses ~${size_gib} GB on disk. ${disk_rec_gib} GiB free is recommended so about 30 GB stays unused."
+        if ! ask_yes_no "  Continue anyway?" n; then
+            err "Stopped before downloading. config.env was saved — free some space, then re-run ./setup.sh or ./refresh.sh."
+        fi
     fi
+elif (( avail < 15 )); then
+    err "Only ${avail} GiB free on the disk that holds $MODELS_DIR. Need a little space for extra files (MTP/vision), not the full model. config.env was saved."
 fi
 mkdir -p "$MODEL_DIR"
 
-if [[ "$VISION_ENABLED" == "true" && -n "$MMPROJ_PATH" && ! -f "$MMPROJ_PATH" ]]; then
+if [[ "$VISION_ENABLED" == "true" && -n "$MMPROJ_PATH" ]] && ! file_usable "$MMPROJ_PATH"; then
     mkdir -p "$(dirname "$MMPROJ_PATH")"
     download_missing "$DOWNLOAD_REPO" "$MMPROJ_DOWNLOAD_FILE" "$MODEL_DIR" || true
 fi

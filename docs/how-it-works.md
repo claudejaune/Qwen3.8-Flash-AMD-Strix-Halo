@@ -20,10 +20,11 @@ phase** downloads any missing model files and offers to build the toolbox
 container (~20 min first time). Downloads/builds happen *after* the config is
 saved, so a failed download never throws away your answers. Re-running
 `setup.sh` overwrites `config.env` with **no** backup (the API key is kept).
-The fetch phase **refuses** if the `~/models` disk has under 100 GiB free
-(the files are ~90-95 GB). 120 GiB free is recommended so ~30 GB stays
-unused. Between 100 and 119 GiB it warns and asks. Do not run setup with
-`sudo`.
+The fetch phase **refuses** if a **download is needed** and the `~/models`
+disk has under 100 GiB free (the files are ~90-95 GB). If the chosen files
+are already on disk, the check is skipped. 120 GiB free is recommended so
+~30 GB stays unused. Between 100 and 119 GiB it warns and asks. A missing
+mmproj/MTP alone does not require 100 GiB. Do not run setup with `sudo`.
 
 `stop.sh` kills llama-server inside the toolbox container named in
 `config.env` — it never touches unrelated llama-server processes on the host
@@ -191,6 +192,7 @@ Full-line `#` comments and blank lines are allowed. Example:
 ```bash
 TOOLBOX_NAME=llama-vulkan-hanchen
 MODEL_PATH=/home/you/models/unsloth/Qwen3.8-Flash-Next-GGUF/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf
+VISION_ENABLED=true
 MMPROJ_PATH=/home/you/models/unsloth/Qwen3.8-Flash-Next-GGUF/mmproj-Qwen.Qwen3.8-Flash-Next.f16.gguf
 BIND_HOST=0.0.0.0
 PORT=1235
@@ -213,6 +215,7 @@ MTP_DRAFT_MODEL=/home/you/models/unsloth/Qwen3.8-Flash-Next-GGUF/mtp-Qwen3.8-Fla
 |---|---|
 | `TOOLBOX_NAME` | Container the server runs in (`llama-vulkan-laurentz` or `llama-vulkan-hanchen`) |
 | `MODEL_PATH` | Main GGUF file (first shard for split models) |
+| `VISION_ENABLED` | `true` to load the multimodal projector (`-mm`) |
 | `MMPROJ_PATH` | Multimodal projector file, used when `VISION_ENABLED=true` |
 | `BIND_HOST` / `PORT` / `API_KEY` | Where the server listens; `API_KEY` only applies when not on localhost |
 | `CTX_SIZE` / `PARALLEL_SLOTS` | Context window and concurrent request slots |

@@ -40,8 +40,8 @@ After `git pull`, update toolboxes / model files if this repo changed them:
 ./refresh.sh
 ```
 
-You can answer No to every prompt. `config.env` is only rewritten after a new
-model download finishes. A timestamped backup is saved under `backups/`.
+You can answer No to every prompt. If model paths in `config.env` change, a
+timestamped backup is saved under `backups/`.
 
 ## Models
 

@@ -48,7 +48,7 @@ SSD streaming reads PLE rows on demand. If prefill is slow:
 This model is large. If you run out of memory:
 - Use SSD streaming (`PLE_MODE=ssd` in config.env) — saves ~30 GB.
 - Use a smaller context size (128k instead of 262k).
-- Ensure kernel params are set correctly (`amd_iommu=off`, `ttm.pages_limit=32505856`).
+- Ensure kernel params are set correctly (`amd_iommu=off`, `ttm.pages_limit=31457280` for ~120 GiB).
 - Check `dmesg | grep -i oom` and `journalctl -k | grep NV_ERR`.
 
 ## GPU not visible in container
