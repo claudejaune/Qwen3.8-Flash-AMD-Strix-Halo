@@ -8,7 +8,7 @@ No prior experience with running local AI models needed. The scripts guide you t
 
 ### Prerequisites
 
-- AMD Strix Halo with 128 GB RAM and ~90 GB free disk for the model
+- AMD Strix Halo with 128 GB RAM and **100 GB free disk minimum** (120 GB recommended) for the model
 - `toolbox` + `podman`:
   - Fedora 42+: `sudo dnf install -y toolbox podman` (preinstalled on Workstation)
   - Ubuntu 24.04/26.04: `sudo add-apt-repository universe && sudo apt install -y podman-toolbox podman` (the toolbox binary is packaged as `podman-toolbox`)
@@ -34,12 +34,21 @@ Once everything is set up, start the server:
 
 To stop the server, press Ctrl-c from the same terminal, or run `./stop.sh`.
 
+After `git pull`, update toolboxes / model files if this repo changed them:
+
+```bash
+./refresh.sh
+```
+
+You can answer No to every prompt. `config.env` is only rewritten after a new
+model download finishes. A timestamped backup is saved under `backups/`.
+
 ## Models
 
 | Model | Quant | Size | Container | MTP |
 |---|---|---|---|---|
-| agentionai | ROCmFP4 | ~88 GB | `llama-vulkan-laurentz` | Yes |
-| unsloth | IQ4_XS | ~88 GB (3 shards) | `llama-vulkan-hanchen` | Yes |
+| agentionai | ROCmFP4 | ~92 GB | `llama-vulkan-laurentz` | Yes |
+| unsloth | IQ4_XS | ~92 GB (3 shards) | `llama-vulkan-hanchen` | Yes |
 
 Both support MTP speculative decoding and (optionally) vision (images/video).
 
@@ -57,7 +66,8 @@ Both support MTP speculative decoding and (optionally) vision (images/video).
 ## Documentation
 
 - [docs/how-it-works.md](docs/how-it-works.md) — explanations of the kernel
-  params, every llama-server flag, SSD streaming vs RAM, and the config file
+  params, every llama-server flag, SSD streaming vs RAM, the config file,
+  and `refresh.sh`
 - [docs/troubleshooting.md](docs/troubleshooting.md) — vision, OOM, slow prefill, and other problems
 - [toolboxes/](toolboxes/README.md) — the container images and how they're built
 

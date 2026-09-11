@@ -2,8 +2,10 @@
 
 Quick fixes first:
 
-- **Container not found** — create it: `./setup.sh` or `./toolboxes/refresh.sh <name>` (see [toolboxes/README.md](../toolboxes/README.md)).
-- **Model not found / incomplete** — download it: `./setup.sh` or `hf download` manually. For split GGUFs, `run.sh` checks every shard and lists exactly which ones are missing.
+- **Container not found** — create it: `./setup.sh`, `./refresh.sh`, or `./toolboxes/refresh-toolboxes.sh <name>` (see [toolboxes/README.md](../toolboxes/README.md)).
+- **Model not found / incomplete** — download it: `./refresh.sh`, `./setup.sh`, or `hf download` manually. For split GGUFs, `run.sh` checks every shard and lists exactly which ones are missing.
+- **Interrupted download** — a 0-byte leftover is treated as missing and re-downloaded. If a partial (non-empty but truncated) file was left behind, delete that file and re-run `./refresh.sh` or `./setup.sh`.
+- **Do not use sudo** — `./setup.sh`, `./refresh.sh`, and `./run.sh` must run as your normal user. Root would put models in `/root/models` and write the wrong paths into `config.env`.
 - **Port in use** — change `PORT` in config.env or stop the existing process: `./stop.sh`.
 
 ## mmproj / vision errors
@@ -51,8 +53,8 @@ This model is large. If you run out of memory:
 
 ## GPU not visible in container
 
-`refresh.sh` warns if `/dev/dri` is not visible inside the container. The GPU
-must be accessible for Vulkan to work.
+`toolboxes/refresh-toolboxes.sh` warns if `/dev/dri` is not visible inside the
+container. The GPU must be accessible for Vulkan to work.
 
 - Check on the host: `ls /dev/dri` (the `amdgpu` driver creates these nodes).
 - Check inside the container: `toolbox run -c <name> -- ls /dev/dri`.

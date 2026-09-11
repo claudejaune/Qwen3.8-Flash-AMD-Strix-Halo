@@ -13,6 +13,7 @@ fi
 
 # shellcheck source=lib/common.sh
 . "$SCRIPT_DIR/lib/common.sh"
+require_not_root
 load_config "$CONFIG_FILE"
 
 # Validate required vars
@@ -38,7 +39,7 @@ fi
 # Check model exists
 if [[ ! -f "$MODEL_PATH" ]]; then
     echo "Error: Model not found: $MODEL_PATH" >&2
-    echo "Download it first. Re-run ./setup.sh." >&2
+    echo "Download it first. Re-run ./setup.sh or ./refresh.sh." >&2
     exit 1
 fi
 
@@ -60,7 +61,7 @@ if [[ "$MODEL_PATH" =~ -([0-9]{5})-of-([0-9]{5})\.gguf$ ]]; then
         for s in "${SHARD_MISSING[@]}"; do
             echo "  $s" >&2
         done
-        echo "Re-download (./setup.sh fetch phase or 'hf download') — the model cannot load partially." >&2
+        echo "Re-download (./setup.sh, ./refresh.sh, or 'hf download') — the model cannot load partially." >&2
         exit 1
     fi
 fi
@@ -68,7 +69,7 @@ fi
 # Locate the container (toolbox only — it must be a toolbox container)
 if ! toolbox_has "$TOOLBOX_NAME"; then
     echo "Error: Toolbox '$TOOLBOX_NAME' not found." >&2
-    echo "Re-run ./setup.sh or build it manually: ./toolboxes/refresh.sh $TOOLBOX_NAME" >&2
+    echo "Re-run ./setup.sh or ./refresh.sh, or build it manually: ./toolboxes/refresh-toolboxes.sh $TOOLBOX_NAME" >&2
     exit 1
 fi
 

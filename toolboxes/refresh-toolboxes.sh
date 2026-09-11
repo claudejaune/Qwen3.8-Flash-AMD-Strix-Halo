@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# refresh.sh — Build a toolbox container image from the Dockerfiles in this
-# directory and (re)create the matching toolbox container.
+# refresh-toolboxes.sh — Build a toolbox container image from the Dockerfiles
+# in this directory and (re)create the matching toolbox container.
 #
 # Usage (can be run from anywhere):
 #
-#   ./toolboxes/refresh.sh <toolbox-name> [extra podman build args, e.g. --no-cache]
+#   ./toolboxes/refresh-toolboxes.sh <toolbox-name> [extra podman build args, e.g. --no-cache]
+#
+# After git pull, prefer ./refresh.sh (offers toolbox + model updates).
 #
 # Available toolboxes:
 #   llama-vulkan-laurentz  — LaurentZuijdwijk fork (vulkan/qwen4exp-rocmfpx),

@@ -13,48 +13,10 @@ CONFIG_FILE="$SCRIPT_DIR/config.env"
 # shellcheck source=lib/common.sh
 . "$SCRIPT_DIR/lib/common.sh"
 
-info()  { echo -e "\033[1;34m[INFO]\033[0m  $*"; }
-ok()    { echo -e "\033[1;32m[ OK ]\033[0m  $*"; }
-warn()  { echo -e "\033[1;33m[WARN]\033[0m  $*"; }
-err()   { echo -e "\033[1;31m[ERR ]\033[0m  $*"; exit 1; }
-
-have() { command -v "$1" &>/dev/null; }
+require_not_root
 
 MISSING=()
 note_missing() { MISSING+=("$1"); }
-
-# ── Helpers ──────────────────────────────────────────────────────────────────
-# All prompts tolerate EOF (Ctrl-D): read fails, the default is used instead
-# of the script dying with a cryptic set -e failure.
-ask() {
-    local varname="$1" prompt="$2" default="$3" val
-    read -rp "$prompt [$default]: " val || val=""
-    val="${val:-$default}"
-    printf -v "$varname" '%s' "$val"
-}
-
-ask_number() {
-    local varname="$1" prompt="$2" default="$3" val
-    while true; do
-        read -rp "$prompt [$default]: " val || val=""
-        val="${val:-$default}"
-        if [[ "$val" =~ ^[0-9]+$ ]]; then break; fi
-        echo "  Please enter a number." >&2
-    done
-    printf -v "$varname" '%s' "$val"
-}
-
-# ask_yes_no <prompt> [y|n] — returns 0 on yes
-ask_yes_no() {
-    local prompt="$1" default="${2:-y}" reply
-    if [[ "$default" == "y" ]]; then
-        read -rp "$prompt [Y/n]: " reply || reply=""
-        [[ ! "$reply" =~ ^[Nn] ]]
-    else
-        read -rp "$prompt [y/N]: " reply || reply=""
-        [[ "$reply" =~ ^[Yy] ]]
-    fi
-}
 
 generate_api_key() {
     # od reads a fixed byte count, so no pipe is closed early (SIGPIPE/pipefail safe).
@@ -178,37 +140,7 @@ info "ttm.pages_limit: $TTM_DISPLAY"
 echo ""
 
 # ── HF CLI availability ──────────────────────────────────────────────────────
-HF_OK=true
-ensure_hf_cli() {
-    if have hf || have uvx; then return 0; fi
-    warn "Neither 'hf' nor 'uvx' found. The HF CLI is required to download models."
-    echo ""
-    echo "  Install it with:"
-    echo ""
-    echo "    curl -LsSf https://hf.co/cli/install.sh | bash"
-    echo ""
-    if ask_yes_no "  Install now?" y; then
-        # NOTE: pipe to bash (not sh) — the installer is bash-only.
-        if curl -LsSf https://hf.co/cli/install.sh | bash; then
-            export PATH="$HOME/.local/bin:$PATH"
-            hash -r 2>/dev/null || true
-            if have hf; then
-                ok "HF CLI installed."
-                return 0
-            fi
-            warn "'hf' installed but not on this shell's PATH yet."
-            echo "  Restart your shell and re-run setup.sh to download models."
-        else
-            warn "HF CLI installation failed."
-        fi
-    else
-        echo "  Skipped. Install it later with: curl -LsSf https://hf.co/cli/install.sh | bash"
-    fi
-    return 1
-}
-if ! ensure_hf_cli; then
-    HF_OK=false
-fi
+ensure_hf_cli || true
 echo ""
 
 # ── Step 1: Network binding ──────────────────────────────────────────────────
@@ -242,7 +174,7 @@ echo ""
 
 # ── Step 2: Host memory reservation ──────────────────────────────────────────
 info "=== Step 2: Host memory reservation ==="
-echo "  This model is large (~88-90 GB). Kernel params control how much"
+echo "  This model is large (~90-95 GB on disk). Kernel params control how much"
 echo "  system RAM the GPU can use as unified memory."
 echo ""
 echo "  All changes require a reboot. setup.sh will NOT modify your bootloader."
@@ -357,55 +289,34 @@ if [[ ! -d "$MODELS_DIR" ]]; then
     fi
 fi
 
-echo ""
-echo "  1) ROCmFP4 (agentionai) — ~88 GB, single file, custom FP4 quant"
-echo "     Toolbox: vulkan-laurentz (ROCmFPX fork)"
-echo "     Pro: smallest file size, optimized quantization"
-echo "     Con: needs local toolbox build (~20 min first time)"
-echo ""
-echo "  2) IQ4_XS (unsloth) — ~88 GB, 3 shards, dynamic quant"
-echo "     Toolbox: vulkan-hanchen (danielhanchen fork, qwen4exp/mtp)"
-echo "     Pro: MTP speculative decoding available, vision support"
-echo "     Con: needs local toolbox build (~20 min first time)"
-echo ""
-read -rp "Choice [2]: " model_choice || model_choice=""
-model_choice="${model_choice:-2}"
+mapfile -t CATALOG_FILES < <(catalog_sorted_files)
+if ((${#CATALOG_FILES[@]} == 0)); then
+    err "No model catalog files found in $CATALOG_DIR"
+fi
 
-case "$model_choice" in
-    1)
-        MODEL_NAME="rocmfp4"
-        TOOLBOX_NAME="llama-vulkan-laurentz"
-        MODEL_DIR="$MODELS_DIR/agentionai/Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-GGUF"
-        MODEL_PATH="$MODEL_DIR/Qwen3.8-Flash-Next-ROCmFP4-FAST-v2-ple16.gguf"
-        MMPROJ_PATH="$MODEL_DIR/mmproj/mmproj-Qwen3.8-Flash-Next-f16.gguf"
-        MTP_DRAFT_MODEL="$MODEL_DIR/Qwen3.8-Flash-Next-MTP-ROCmFP4-FAST.gguf"
-        # SSD streaming flags for laurentz fork
-        SSD_FLAG="--ngram-on-disk"
-        SSD_EXTRA_FLAGS="--ngram-direct-io --ngram-io-threads 64"
-        DOWNLOAD_REPO="agentionai/Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-GGUF"
-        DOWNLOAD_FILES="Qwen3.8-Flash-Next-ROCmFP4-FAST-v2-ple16.gguf Qwen3.8-Flash-Next-MTP-ROCmFP4-FAST.gguf"
-        MMPROJ_DOWNLOAD_FILE="mmproj/mmproj-Qwen3.8-Flash-Next-f16.gguf"
-        VISION_AVAILABLE=true
-        ;;
-    2)
-        MODEL_NAME="unsloth_iq4xs"
-        TOOLBOX_NAME="llama-vulkan-hanchen"
-        MODEL_DIR="$MODELS_DIR/unsloth/Qwen3.8-Flash-Next-GGUF"
-        MODEL_PATH="$MODEL_DIR/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf"
-        MMPROJ_PATH="$MODEL_DIR/mmproj-Qwen.Qwen3.8-Flash-Next.f16.gguf"
-        MTP_DRAFT_MODEL="$MODEL_DIR/mtp-Qwen3.8-Flash-Next-Q4_K_M.gguf"
-        # SSD streaming flags for hanchen fork
-        SSD_FLAG="--lazy-mode on"
-        SSD_EXTRA_FLAGS=""
-        DOWNLOAD_REPO="unsloth/Qwen3.8-Flash-Next-GGUF"
-        DOWNLOAD_FILES="Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf Qwen3.8-Flash-Next-UD-IQ4_XS-00002-of-00003.gguf Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00003.gguf mtp-Qwen3.8-Flash-Next-Q4_K_M.gguf"
-        MMPROJ_DOWNLOAD_FILE="mmproj-Qwen.Qwen3.8-Flash-Next.f16.gguf"
-        VISION_AVAILABLE=true
-        ;;
-    *)
-        err "Invalid choice."
-        ;;
-esac
+echo ""
+default_choice=1
+i=1
+for f in "${CATALOG_FILES[@]}"; do
+    load_catalog "$f" || err "Failed to read catalog: $f"
+    echo "  $i) $CATALOG_LABEL — $CATALOG_SIZE_NOTE"
+    echo "     Toolbox: $CATALOG_TOOLBOX_NOTE"
+    echo "     Pro: $CATALOG_PRO"
+    echo "     Con: $CATALOG_CON"
+    echo ""
+    if [[ "${CATALOG_DEFAULT:-}" == "true" ]]; then
+        default_choice=$i
+    fi
+    i=$((i + 1))
+done
+read -rp "Choice [$default_choice]: " model_choice || model_choice=""
+model_choice="${model_choice:-$default_choice}"
+if [[ ! "$model_choice" =~ ^[0-9]+$ ]] || \
+   (( model_choice < 1 || model_choice > ${#CATALOG_FILES[@]} )); then
+    err "Invalid choice."
+fi
+load_catalog "${CATALOG_FILES[$((model_choice - 1))]}" || err "Failed to read catalog."
+catalog_apply_paths
 
 # ── Step 3b: Vision (multimodal) ─────────────────────────────────────────────
 VISION_ENABLED=false
@@ -544,46 +455,30 @@ ok "Config written to: $CONFIG_FILE"
 echo ""
 
 # ── Fetch phase: downloads + toolbox build (config is safe on disk) ──────────
-hf_download() {
-    # Usage: hf_download <repo> <file> <local-dir>. Returns non-zero on failure.
-    local repo="$1" file="$2" dir="$3"
-    if [[ "$HF_OK" != "true" ]]; then
-        warn "Skipped: $file (HF CLI unavailable)"
-        return 1
-    fi
-    if have hf; then
-        hf download "$repo" "$file" --local-dir "$dir"
-    else
-        uvx --from huggingface-hub hf download "$repo" "$file" --local-dir "$dir"
-    fi
-}
-
 download_missing() {
-    # Usage: download_missing <repo> <relative-file> <local-dir>
-    # NOTE: two separate local statements — in one statement all right-hand
-    # expansions happen before any assignment, so fpath="$dir/$file" would
-    # see $dir unbound.
-    local repo="$1" file="$2" dir="$3"
-    local fpath="$dir/$file"
-    if [[ -f "$fpath" ]]; then
-        ok "Already downloaded: $file ($(du -sh "$fpath" | cut -f1))"
+    if download_if_missing "$1" "$2" "$3" ask; then
         return 0
     fi
-    warn "Missing: $file"
-    if ! ask_yes_no "  Download now?" y; then
-        note_missing "$file"
-        return 1
-    fi
-    if hf_download "$repo" "$file" "$dir"; then
-        ok "Downloaded: $file"
-    else
-        warn "Download failed: $file"
-        note_missing "$file"
-        return 1
-    fi
+    note_missing "$2"
+    return 1
 }
 
 info "=== Fetch phase: model files ==="
+avail="$(disk_avail_gib "$MODELS_DIR")" || avail=""
+size_gib="${CATALOG_SIZE_GIB:-95}"
+disk_min_gib=100
+disk_rec_gib=120
+if [[ -z "$avail" ]]; then
+    warn "Could not check free disk space for $MODELS_DIR."
+elif (( avail < disk_min_gib )); then
+    err "Only ${avail} GiB free on the disk that holds $MODELS_DIR. Need at least ${disk_min_gib} GiB (this model uses ~${size_gib} GB on disk; ${disk_rec_gib} GiB free is recommended so the disk isn't packed full)."
+elif (( avail < disk_rec_gib )); then
+    warn "Only ${avail} GiB free on the disk that holds $MODELS_DIR."
+    echo "  This model uses ~${size_gib} GB on disk. ${disk_rec_gib} GiB free is recommended so about 30 GB stays unused."
+    if ! ask_yes_no "  Continue anyway?" n; then
+        err "Stopped before downloading. config.env was saved — free some space, then re-run ./setup.sh or ./refresh.sh."
+    fi
+fi
 mkdir -p "$MODEL_DIR"
 
 if [[ "$VISION_ENABLED" == "true" && -n "$MMPROJ_PATH" && ! -f "$MMPROJ_PATH" ]]; then
@@ -591,7 +486,7 @@ if [[ "$VISION_ENABLED" == "true" && -n "$MMPROJ_PATH" && ! -f "$MMPROJ_PATH" ]]
     download_missing "$DOWNLOAD_REPO" "$MMPROJ_DOWNLOAD_FILE" "$MODEL_DIR" || true
 fi
 
-# shellcheck disable=SC2206
+# shellcheck disable=SC2086
 for f in $DOWNLOAD_FILES; do
     download_missing "$DOWNLOAD_REPO" "$f" "$MODEL_DIR" || true
 done
@@ -604,7 +499,7 @@ else
     warn "Toolbox '$TOOLBOX_NAME' not found."
     info "Building it compiles a llama.cpp fork inside a container image. This may take ~20 minutes."
     if ask_yes_no "Build toolbox now?" n; then
-        if bash "$SCRIPT_DIR/toolboxes/refresh.sh" "$TOOLBOX_NAME"; then
+        if bash "$SCRIPT_DIR/toolboxes/refresh-toolboxes.sh" "$TOOLBOX_NAME"; then
             ok "Toolbox built."
         else
             warn "Toolbox build failed."
@@ -612,7 +507,7 @@ else
         fi
     else
         echo "  Build it manually before running run.sh:"
-        echo "    ./toolboxes/refresh.sh $TOOLBOX_NAME"
+        echo "    ./toolboxes/refresh-toolboxes.sh $TOOLBOX_NAME"
         note_missing "toolbox '$TOOLBOX_NAME'"
     fi
 fi
@@ -635,6 +530,7 @@ fi
 echo ""
 echo "  Start:      ./run.sh"
 echo "  Stop:       ./stop.sh"
+echo "  Update:     ./refresh.sh   (after git pull)"
 echo ""
 
 if ((${#MISSING[@]} > 0)); then

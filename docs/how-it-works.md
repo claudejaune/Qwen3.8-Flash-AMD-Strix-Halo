@@ -8,7 +8,7 @@ version, see the [main README](../README.md).
 1. **Container tooling check** — detects your distro (Fedora/Ubuntu/Arch) and offers to install `toolbox` + `podman` if missing
 2. **Network binding** — localhost or 0.0.0.0 (with API key, preserved across setup runs)
 3. **Kernel config check** — prints the `amd_iommu=off` / `ttm.pages_limit` commands for your bootloader; never modifies the bootloader itself
-4. **Model selection** — ROCmFP4 (agentionai) or IQ4_XS (unsloth)
+4. **Model selection** — reads `lib/catalog/*.conf` (ROCmFP4 / IQ4_XS today)
 5. **Vision on/off** — multimodal projector (mmproj)
 6. **PLE storage** — SSD streaming or resident in RAM
 7. **Context size** — 128k / 180k / 262k
@@ -18,13 +18,68 @@ version, see the [main README](../README.md).
 After all questions are answered, `config.env` is written and a final **fetch
 phase** downloads any missing model files and offers to build the toolbox
 container (~20 min first time). Downloads/builds happen *after* the config is
-saved, so a failed download never throws away your answers.
+saved, so a failed download never throws away your answers. Re-running
+`setup.sh` overwrites `config.env` with **no** backup (the API key is kept).
+The fetch phase **refuses** if the `~/models` disk has under 100 GiB free
+(the files are ~90-95 GB). 120 GiB free is recommended so ~30 GB stays
+unused. Between 100 and 119 GiB it warns and asks. Do not run setup with
+`sudo`.
 
 `stop.sh` kills llama-server inside the toolbox container named in
 `config.env` — it never touches unrelated llama-server processes on the host
 as long as the container path is available. If the container is missing or
 not running, it falls back to a host-wide search, but asks for confirmation
 before killing anything.
+
+## What refresh.sh does
+
+After `git pull`, run `./refresh.sh`. It does **not** pull git itself and does
+**not** re-ask setup questions.
+
+1. **Shows your combo** — toolbox + quant from `config.env`, matched against
+   `lib/catalog/*.conf`
+2. **Toolbox rebuild** — offered for the toolbox you use (default No, ~20 min).
+   If the server is running in that container, it warns and stops it first.
+   A second installed toolbox is offered too.
+3. **Model/quant** — only if the catalog files for your toolbox changed
+   (different GGUF / MTP / mmproj names than `config.env`). Otherwise it
+   says you are up to date.
+4. **Disk space** — checks free space on the filesystem that holds
+   `~/models`. Empty (0-byte) files from an interrupted download are treated
+   as missing. If the new files are already on disk, it only updates
+   `config.env`. If only a small extra file (MTP/vision) is missing, it does
+   **not** demand room for a full ~95 GB model and will not offer to delete
+   the main files.
+   - Downloading the main model next to the old one wants **120 GiB free**.
+     Download first; `config.env` is rewritten only after that succeeds.
+     Then you are asked whether to delete the **old** model files (default
+     No). Delete happens only after the new files are in place, and only
+     those files — not some other model on disk.
+   - Not enough space for a main-model download: you are asked whether to
+     stop the server and delete the files being replaced first (default No).
+     **No aborts the whole script**; nothing is deleted. **Yes** stops the
+     server, deletes only that quant, then downloads. If there is nothing
+     to delete, it aborts with a “free some disk” message.
+5. **config.env backup** — before rewriting paths, a copy is saved as
+   `backups/config.env-YYYY-MM-DD-HH-MM`. Only `MODEL_PATH` / `MMPROJ_PATH` /
+   `MTP_DRAFT_MODEL` are updated; API key, bind, context, PLE, MTP on/off
+   stay as they were. `PLE_FLAGS` is **not** updated — re-run `./setup.sh`
+   if you need different PLE options.
+
+Ctrl-C leaves `config.env` alone unless a download already finished. If you
+already confirmed a low-disk delete, those old files stay gone. A toolbox
+rebuild cannot be undone. Partial Hugging Face downloads can be resumed by
+running `./refresh.sh` again (0-byte leftovers are re-downloaded).
+
+Do not run `./setup.sh`, `./refresh.sh`, or `./run.sh` with `sudo`.
+
+`./setup.sh` is still the way to **switch** quant/toolbox. `refresh.sh` only
+updates the combo you already chose. Re-running `./setup.sh` overwrites
+`config.env` **without** a backup (your API key is preserved). Use
+`./refresh.sh` for updates after `git pull`.
+
+The low-level container builder is
+`./toolboxes/refresh-toolboxes.sh <name>` (called by setup and refresh).
 
 ## Host configuration (kernel params)
 

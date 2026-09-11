@@ -12,9 +12,12 @@ Build one (~20 min first build, needs internet — the build clones the llama.cp
 fork):
 
 ```bash
-./toolboxes/refresh.sh llama-vulkan-laurentz
-./toolboxes/refresh.sh llama-vulkan-hanchen
+./toolboxes/refresh-toolboxes.sh llama-vulkan-laurentz
+./toolboxes/refresh-toolboxes.sh llama-vulkan-hanchen
 ```
+
+After `git pull`, `./refresh.sh` at the repo root offers to run this for you
+(and checks whether the recommended model files changed).
 
 Pass `--no-cache` to force a full rebuild (fresh git clone + recompile);
 without it, podman layer caching makes rebuilds fast but reuses the same code.
